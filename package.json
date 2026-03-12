@@ -4,7 +4,7 @@
   "description": "Custom Node.js backend - Supabase used only as database",
   "main": "src/index.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node src/index.js",
