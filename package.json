@@ -1,0 +1,20 @@
+{
+  "name": "lucky-bangla-backend",
+  "version": "1.0.0",
+  "description": "Custom Node.js backend - Supabase used only as database",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "build": "node -c src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.97.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0"
+  }
+}
