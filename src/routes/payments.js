@@ -201,6 +201,22 @@ router.post('/withdrawals', requireAuth, async (req, res) => {
   }
 
   try {
+    const { data: withdrawable, error: withdrawableErr } = await supabaseAdmin.rpc('get_withdrawable_balance', {
+      p_user_id: req.user.id,
+    });
+    if (withdrawableErr) {
+      return res.status(400).json({ error: withdrawableErr.message || 'Could not check balance' });
+    }
+    const withdrawableAmt = Number(withdrawable ?? 0);
+    if (amt > withdrawableAmt) {
+      return res.status(400).json({
+        error:
+          withdrawableAmt <= 0
+            ? 'Complete bonus turnover requirement before withdrawing'
+            : `Withdrawable balance ৳${withdrawableAmt.toLocaleString()}. Complete bonus turnover to unlock more.`,
+      });
+    }
+
     const { data: newBalance, error: rpcError } = await supabaseAdmin.rpc('adjust_wallet_balance', {
       p_user_id: req.user.id,
       p_amount: -amt,
