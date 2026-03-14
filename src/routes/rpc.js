@@ -4,10 +4,12 @@ const { supabaseAdmin } = require('../services/supabase');
 const { requireAuth } = require('../middleware/auth');
 
 const ALLOWED_RPCS = new Set([
+  'admin_final_approve_deposit',
   'adjust_wallet_balance',
   'add_vip_points',
   'claim_cashback',
   'get_withdrawable_balance',
+  'get_user_bonus_turnover',
   'try_daily_spin',
   'get_daily_spin_status',
   'get_or_create_crash_round',
@@ -27,6 +29,7 @@ const ALLOWED_RPCS = new Set([
 ]);
 
 const ADMIN_ONLY_RPCS = new Set([
+  'admin_final_approve_deposit',
   'load_agent_balance',
   'pay_agent_commission',
   'get_profit_chart_data',
@@ -48,11 +51,13 @@ const USER_SCOPED_RPC_PARAMS = {
   adjust_wallet_balance: 'p_user_id',
   add_vip_points: 'p_user_id',
   get_withdrawable_balance: 'p_user_id',
+  get_user_bonus_turnover: 'p_user_id',
   try_daily_spin: 'p_user_id',
   get_daily_spin_status: 'p_user_id',
   claim_cashback: 'p_user_id',
   has_role: '_user_id',
   pay_agent_commission: 'p_admin_id',
+  admin_final_approve_deposit: 'p_admin_id',
   process_agent_assigned_deposit_approval: 'p_agent_id',
   process_agent_deposit: 'p_agent_id',
   process_agent_withdrawal_approval: 'p_agent_id',
