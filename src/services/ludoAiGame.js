@@ -101,16 +101,17 @@ function mapRelativeTarget(startPos, diceVal, player) {
   let stepsIntoHome = 0;
 
   for (let step = 1; step <= diceVal; step += 1) {
-    currentAbs = (currentAbs + 1) % 52;
-
-    if (!crossedEntry) {
+    if (currentAbs === entryAbs) {
+      crossedEntry = true;
+      stepsIntoHome += 1;
+    } else if (crossedEntry) {
+      stepsIntoHome += 1;
+    } else {
+      currentAbs = (currentAbs + 1) % 52;
       if (currentAbs === entryAbs) {
         crossedEntry = true;
       }
-      continue;
     }
-
-    stepsIntoHome += 1;
   }
 
   if (!crossedEntry) {
