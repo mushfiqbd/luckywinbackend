@@ -10,10 +10,10 @@ const LEVELS = [
 ];
 const WIN_MULTI = 1.8;
 
-const MAX_PATH_POS = 51; // Indian Ludo: 52 steps on main path (0-51)
-const HOME_START = 52; // First home cell (after 52 main path steps)
-const HOME_END = 57;   // Last home cell before center
-const FINAL_HOME = 58; // Center
+const MAX_PATH_POS = 51; // 0-51 = 52 main path cells
+const HOME_START = 52;   // first colored home cell
+const HOME_END = 56;     // last colored home cell
+const FINAL_HOME = 57;   // center
 const SAFE_ABS = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 
 const FAKE_NAMES = [
@@ -77,12 +77,15 @@ function getMovableTokens(state, player, diceVal) {
 
   const hasOppBlock = (absSquare) => {
     const opp = player === 'blue' ? 'green' : 'blue';
-    const count = opponent.filter((pos) => pos >= 0 && pos <= MAX_PATH_POS && toAbs(pos, opp) === absSquare).length;
+    const count = opponent.filter(
+      (pos) => pos >= 0 && pos <= MAX_PATH_POS && toAbs(pos, opp) === absSquare
+    ).length;
     return count >= 2;
   };
 
   tokens.forEach((pos, idx) => {
     if (pos === FINAL_HOME) return;
+
     if (pos === -1) {
       if (diceVal === 6) {
         const entryAbs = toAbs(0, player);
@@ -92,17 +95,21 @@ function getMovableTokens(state, player, diceVal) {
     }
 
     const newPos = pos + diceVal;
+
+    // exact number required for final home
     if (newPos > FINAL_HOME) return;
 
     if (pos <= MAX_PATH_POS) {
       let blocked = false;
       const endCheck = Math.min(newPos, MAX_PATH_POS);
+
       for (let rel = pos + 1; rel <= endCheck; rel += 1) {
         if (hasOppBlock(toAbs(rel, player))) {
           blocked = true;
           break;
         }
       }
+
       if (blocked) return;
     }
 
@@ -117,11 +124,22 @@ function applyMove(state, player, tokenIdx, diceVal) {
   const myTokens = player === 'blue' ? [...next.blue] : [...next.green];
   const oppTokens = player === 'blue' ? [...next.green] : [...next.blue];
 
-  let startPos = myTokens[tokenIdx];
+  const startPos = myTokens[tokenIdx];
+
   if (startPos === -1) {
+    if (diceVal !== 6) {
+      return next;
+    }
     myTokens[tokenIdx] = 0;
   } else {
-    myTokens[tokenIdx] = startPos + diceVal;
+    const target = startPos + diceVal;
+
+    // exact number required for center
+    if (target > FINAL_HOME) {
+      return next;
+    }
+
+    myTokens[tokenIdx] = target;
   }
 
   const movedPos = myTokens[tokenIdx];
@@ -130,10 +148,14 @@ function applyMove(state, player, tokenIdx, diceVal) {
 
   if (movedPos >= 0 && movedPos <= MAX_PATH_POS) {
     const absP = toAbs(movedPos, player);
+
     if (!SAFE_ABS.has(absP)) {
       const oppPlayer = player === 'blue' ? 'green' : 'blue';
+
       const oppIndicesOnSquare = oppTokens
-        .map((op, oi) => (op >= 0 && op <= MAX_PATH_POS && toAbs(op, oppPlayer) === absP ? oi : -1))
+        .map((op, oi) =>
+          op >= 0 && op <= MAX_PATH_POS && toAbs(op, oppPlayer) === absP ? oi : -1
+        )
         .filter((oi) => oi !== -1);
 
       if (oppIndicesOnSquare.length === 1) {
@@ -211,6 +233,7 @@ function getBiasedDice(targetOutcome, player) {
     if (r < 0.7) return 4;
     return normal();
   }
+
   const r = secureRandom();
   if (r < 0.35) return randomInt(3) + 1;
   return normal();
@@ -229,6 +252,7 @@ function chooseAiMove(state, movable) {
       score = 15;
     } else {
       const np = pos + state.dice;
+
       if (np === FINAL_HOME) {
         score = 200;
       } else if (np >= HOME_START) {
@@ -236,7 +260,10 @@ function chooseAiMove(state, movable) {
       } else {
         const absN = toAbs(np, 'green');
 
-        const canCapture = !SAFE_ABS.has(absN) && playerTokens.some((rp) => rp >= 0 && rp <= MAX_PATH_POS && toAbs(rp, 'blue') === absN);
+        const canCapture =
+          !SAFE_ABS.has(absN) &&
+          playerTokens.some((rp) => rp >= 0 && rp <= MAX_PATH_POS && toAbs(rp, 'blue') === absN);
+
         if (canCapture) score += 150;
         if (SAFE_ABS.has(absN)) score += 20;
 
@@ -249,6 +276,7 @@ function chooseAiMove(state, movable) {
             }
           }
         });
+
         score -= dangerLevel;
         score += Math.max(0, 30 - pos);
 
@@ -265,6 +293,7 @@ function chooseAiMove(state, movable) {
     }
 
     score += secureRandom() * 8 - 4;
+
     if (score > bestScore) {
       bestScore = score;
       best = i;
@@ -295,6 +324,7 @@ function processAiTurns(state, targetOutcome) {
     }
 
     const movable = getMovableTokens(next, 'green', val);
+
     if (movable.length === 0) {
       next.aiTurns.push({ dice: val, tokenIdx: null, skipped: true, reason: 'no_moves' });
       next.turn = 'blue';
@@ -408,6 +438,7 @@ async function startLudoMatch(userId, levelIdx) {
     .select('balance')
     .eq('user_id', userId)
     .single();
+
   if (walletError) throw new Error(walletError.message);
   if (!wallet || Number(wallet.balance) < level.bet) {
     throw new Error('Insufficient balance');
@@ -417,6 +448,7 @@ async function startLudoMatch(userId, levelIdx) {
     p_user_id: userId,
     p_amount: -level.bet,
   });
+
   await supabaseAdmin.rpc('add_vip_points', {
     p_user_id: userId,
     p_points: Math.floor(level.bet / 100),
@@ -424,11 +456,16 @@ async function startLudoMatch(userId, levelIdx) {
   });
 
   const outcome = await calculateOutcome(userId, level.bet, 'ludo', 'ludo-king');
-  const targetOutcome = outcome.outcome === 'loss'
-    ? 'force_loss'
-    : outcome.outcome === 'small_win' || outcome.outcome === 'medium_win' || outcome.outcome === 'big_win' || outcome.outcome === 'mega_win'
-      ? 'force_win'
-      : 'natural';
+
+  const targetOutcome =
+    outcome.outcome === 'loss'
+      ? 'force_loss'
+      : outcome.outcome === 'small_win' ||
+        outcome.outcome === 'medium_win' ||
+        outcome.outcome === 'big_win' ||
+        outcome.outcome === 'mega_win'
+        ? 'force_win'
+        : 'natural';
 
   const boardState = {
     blue: [-1, -1, -1, -1],
@@ -477,9 +514,11 @@ async function requireMatch(userId, matchId) {
   if (error) {
     throw new Error(error.message);
   }
+
   if (!data || data.status !== 'active') {
     throw new Error('Active match not found');
   }
+
   return data;
 }
 
@@ -497,6 +536,7 @@ async function saveMatch(row, nextState) {
   if (error) {
     throw new Error(error.message);
   }
+
   return data;
 }
 
@@ -505,6 +545,7 @@ async function getLudoMatchState(userId, matchId) {
     const active = await getActiveMatch(userId);
     return serializeMatch(active);
   }
+
   const row = await requireMatch(userId, matchId);
   return serializeMatch(row);
 }
@@ -534,6 +575,7 @@ async function rollLudoDice(userId, matchId) {
       state.movable = [];
       state.turn = 'green';
       state = processAiTurns(state, row.target_outcome);
+
       const saved = await saveMatch(row, state);
       if (state.winner) {
         return serializeMatch(await settleMatch(saved, state.winner));
@@ -545,6 +587,7 @@ async function rollLudoDice(userId, matchId) {
   }
 
   const movable = getMovableTokens(state, 'blue', val);
+
   if (movable.length === 0) {
     state.rolled = false;
     state.movable = [];
@@ -567,11 +610,17 @@ async function moveLudoToken(userId, matchId, tokenIdx) {
   const row = await requireMatch(userId, matchId);
   let state = cloneState(row.board_state);
 
-  if (state.turn !== 'blue' || !state.rolled || !Array.isArray(state.movable) || !state.movable.includes(tokenIdx)) {
+  if (
+    state.turn !== 'blue' ||
+    !state.rolled ||
+    !Array.isArray(state.movable) ||
+    !state.movable.includes(tokenIdx)
+  ) {
     throw new Error('Invalid move');
   }
 
   state = applyMove(state, 'blue', tokenIdx, state.dice);
+
   if (!state.winner && state.turn === 'green') {
     state = processAiTurns(state, row.target_outcome);
   }
