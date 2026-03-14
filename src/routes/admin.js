@@ -213,4 +213,82 @@ router.post('/add-agent-direct', requireAuth, requireAdmin, async (req, res) => 
   });
 });
 
+/**
+ * POST /api/admin/create-sub-admin
+ * Body: { phone, password, name? }
+ * Admin only. Creates sub-admin (moderator) with phone + password. Sub-admin logs in at admin panel with same credentials.
+ */
+router.post('/create-sub-admin', requireAuth, requireAdmin, async (req, res) => {
+  const { phone: rawPhone, password, name } = req.body || {};
+  if (!rawPhone || !password || password.length < 6) {
+    return res.status(400).json({ error: 'phone and password (min 6 chars) required' });
+  }
+
+  const phone = normalizePhone(rawPhone);
+  if (!/^01[3-9]\d{8}$/.test(phone)) {
+    return res.status(400).json({ error: 'Invalid BD phone (01XXXXXXXXX)' });
+  }
+
+  const email = `${phone}@luckywin.app`;
+  const displayName = (name && String(name).trim()) || phone;
+
+  const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
+  const existingUser = listData?.users?.find((u) => u.email === email);
+  let userId;
+
+  if (existingUser) {
+    userId = existingUser.id;
+    await supabaseAdmin.auth.admin.updateUserById(userId, { password });
+  } else {
+    const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { username: displayName, phone },
+    });
+    if (createErr || !newUser?.user) {
+      return res.status(500).json({ error: 'Failed to create user: ' + (createErr?.message || 'Unknown') });
+    }
+    userId = newUser.user.id;
+  }
+
+  const { data: existingRoles } = await supabaseAdmin
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', userId);
+  const hasAdminOrMod = existingRoles?.some((r) => r.role === 'admin' || r.role === 'moderator');
+  if (hasAdminOrMod) {
+    return res.status(400).json({ error: 'User is already admin or sub-admin' });
+  }
+
+  await supabaseAdmin.from('user_roles').insert({ user_id: userId, role: 'moderator' });
+  await supabaseAdmin.from('sub_admin_permissions').insert({ user_id: userId, module: '/admin/dashboard' });
+
+  const { data: existingProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('user_id')
+    .eq('user_id', userId)
+    .single();
+  if (existingProfile) {
+    await supabaseAdmin.from('profiles').update({ username: displayName, phone }).eq('user_id', userId);
+  } else {
+    const { data: refCode } = await supabaseAdmin.rpc('generate_refer_code');
+    const { data: uCode } = await supabaseAdmin.rpc('generate_user_code');
+    await supabaseAdmin.from('profiles').insert({
+      user_id: userId,
+      username: displayName,
+      phone,
+      refer_code: refCode ?? null,
+      user_code: uCode ?? null,
+    });
+  }
+
+  return res.json({
+    success: true,
+    user_id: userId,
+    phone,
+    message: 'Sub-admin created. Login at admin panel with this phone and password.',
+  });
+});
+
 module.exports = router;
