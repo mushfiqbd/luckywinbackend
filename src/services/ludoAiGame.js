@@ -8,13 +8,23 @@ const LEVELS = [
   { level: 7, bet: 500 }, { level: 8, bet: 700 }, { level: 9, bet: 900 },
   { level: 10, bet: 1000 },
 ];
+
 const WIN_MULTI = 1.8;
 
 const MAX_PATH_POS = 51; // 0-51 = 52 main path cells
 const HOME_START = 52;   // first colored home cell
 const HOME_END = 56;     // last colored home cell
 const FINAL_HOME = 57;   // center
+
 const SAFE_ABS = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+
+// Entry to home path happens from the square just before each player's start
+// blue start abs = 39 -> entry abs = 38
+// green start abs = 13 -> entry abs = 12
+const HOME_ENTRY_ABS = {
+  blue: 38,
+  green: 12,
+};
 
 const FAKE_NAMES = [
   'Rahat_99', 'ShakilPro', 'Tanvir★', 'MdArif_21', 'Nahid77',
@@ -25,6 +35,7 @@ const FAKE_NAMES = [
   'SajibStar', 'Mamun12', 'RifatPro', 'Jewel★', 'AbdulGamer',
   'Niloy_King', 'ShafiqBD', 'Polash66', 'MarufPlay', 'Akash_Pro',
 ];
+
 const FAKE_AVATARS = [
   'https://api.dicebear.com/9.x/adventurer/svg?seed=Felix',
   'https://api.dicebear.com/9.x/adventurer/svg?seed=Aneka',
@@ -70,6 +81,46 @@ function cloneState(state) {
   return JSON.parse(JSON.stringify(state));
 }
 
+function getHomeEntryAbs(player) {
+  return HOME_ENTRY_ABS[player];
+}
+
+function mapRelativeTarget(startPos, diceVal, player) {
+  const target = startPos + diceVal;
+  const entryAbs = getHomeEntryAbs(player);
+
+  // already in home lane
+  if (startPos >= HOME_START) {
+    return target <= FINAL_HOME ? target : null;
+  }
+
+  // still on main path
+  const startAbs = toAbs(startPos, player);
+  let currentAbs = startAbs;
+  let crossedEntry = false;
+  let stepsIntoHome = 0;
+
+  for (let step = 1; step <= diceVal; step += 1) {
+    currentAbs = (currentAbs + 1) % 52;
+
+    if (!crossedEntry) {
+      if (currentAbs === entryAbs) {
+        crossedEntry = true;
+      }
+      continue;
+    }
+
+    stepsIntoHome += 1;
+  }
+
+  if (!crossedEntry) {
+    return target <= MAX_PATH_POS ? target : null;
+  }
+
+  const newPos = HOME_START + stepsIntoHome - 1;
+  return newPos <= FINAL_HOME ? newPos : null;
+}
+
 function getMovableTokens(state, player, diceVal) {
   const tokens = player === 'blue' ? state.blue : state.green;
   const opponent = player === 'blue' ? state.green : state.blue;
@@ -94,18 +145,24 @@ function getMovableTokens(state, player, diceVal) {
       return;
     }
 
-    const newPos = pos + diceVal;
+    const mappedTarget = mapRelativeTarget(pos, diceVal, player);
+    if (mappedTarget === null) return;
 
-    // exact number required for final home
-    if (newPos > FINAL_HOME) return;
-
+    // block check only on main path steps before home entry
     if (pos <= MAX_PATH_POS) {
       let blocked = false;
-      const endCheck = Math.min(newPos, MAX_PATH_POS);
+      let currentAbs = toAbs(pos, player);
+      const entryAbs = getHomeEntryAbs(player);
 
-      for (let rel = pos + 1; rel <= endCheck; rel += 1) {
-        if (hasOppBlock(toAbs(rel, player))) {
+      for (let step = 1; step <= diceVal; step += 1) {
+        currentAbs = (currentAbs + 1) % 52;
+
+        if (hasOppBlock(currentAbs)) {
           blocked = true;
+          break;
+        }
+
+        if (currentAbs === entryAbs) {
           break;
         }
       }
@@ -132,14 +189,11 @@ function applyMove(state, player, tokenIdx, diceVal) {
     }
     myTokens[tokenIdx] = 0;
   } else {
-    const target = startPos + diceVal;
-
-    // exact number required for center
-    if (target > FINAL_HOME) {
+    const mappedTarget = mapRelativeTarget(startPos, diceVal, player);
+    if (mappedTarget === null) {
       return next;
     }
-
-    myTokens[tokenIdx] = target;
+    myTokens[tokenIdx] = mappedTarget;
   }
 
   const movedPos = myTokens[tokenIdx];
@@ -251,7 +305,7 @@ function chooseAiMove(state, movable) {
     if (pos === -1) {
       score = 15;
     } else {
-      const np = pos + state.dice;
+      const np = mapRelativeTarget(pos, state.dice, 'green');
 
       if (np === FINAL_HOME) {
         score = 200;
@@ -271,7 +325,8 @@ function chooseAiMove(state, movable) {
         playerTokens.forEach((rp) => {
           if (rp < 0 || rp > MAX_PATH_POS) return;
           for (let d = 1; d <= 6; d += 1) {
-            if (rp + d <= MAX_PATH_POS && toAbs(rp + d, 'blue') === absN && !SAFE_ABS.has(absN)) {
+            const pred = mapRelativeTarget(rp, d, 'blue');
+            if (pred !== null && pred <= MAX_PATH_POS && pred >= 0 && toAbs(pred, 'blue') === absN && !SAFE_ABS.has(absN)) {
               dangerLevel += (7 - d) * 3;
             }
           }
@@ -457,15 +512,11 @@ async function startLudoMatch(userId, levelIdx) {
 
   const outcome = await calculateOutcome(userId, level.bet, 'ludo', 'ludo-king');
 
-  const targetOutcome =
-    outcome.outcome === 'loss'
-      ? 'force_loss'
-      : outcome.outcome === 'small_win' ||
-        outcome.outcome === 'medium_win' ||
-        outcome.outcome === 'big_win' ||
-        outcome.outcome === 'mega_win'
-        ? 'force_win'
-        : 'natural';
+  const targetOutcome = outcome.outcome === 'loss'
+    ? 'force_loss'
+    : outcome.outcome === 'small_win' || outcome.outcome === 'medium_win' || outcome.outcome === 'big_win' || outcome.outcome === 'mega_win'
+      ? 'force_win'
+      : 'natural';
 
   const boardState = {
     blue: [-1, -1, -1, -1],
@@ -610,12 +661,7 @@ async function moveLudoToken(userId, matchId, tokenIdx) {
   const row = await requireMatch(userId, matchId);
   let state = cloneState(row.board_state);
 
-  if (
-    state.turn !== 'blue' ||
-    !state.rolled ||
-    !Array.isArray(state.movable) ||
-    !state.movable.includes(tokenIdx)
-  ) {
+  if (state.turn !== 'blue' || !state.rolled || !Array.isArray(state.movable) || !state.movable.includes(tokenIdx)) {
     throw new Error('Invalid move');
   }
 
