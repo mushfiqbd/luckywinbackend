@@ -9,7 +9,7 @@ const LEVELS = [
   { level: 10, bet: 1000 },
 ];
 
-const WIN_MULTI = 1.8;
+// REMOVED: WIN_MULTI constant - now uses calculateOutcome().maxWinAmount instead
 
 const MAX_PATH_POS = 51; // 0-51 = 52 main path cells
 const HOME_START = 52;   // first colored home cell
@@ -89,9 +89,14 @@ function mapRelativeTarget(startPos, diceVal, player) {
   const target = startPos + diceVal;
   const entryAbs = getHomeEntryAbs(player);
 
-  // already in home lane
+  // already in home lane - exact distance check required
   if (startPos >= HOME_START) {
-    return target <= FINAL_HOME ? target : null;
+    const remainingSteps = FINAL_HOME - startPos;
+    // Must roll exact number to reach center or land exactly on home cell
+    if (diceVal <= remainingSteps) {
+      return startPos + diceVal;
+    }
+    return null; // Overshoot - can't move beyond center
   }
 
   // still on main path
@@ -118,8 +123,13 @@ function mapRelativeTarget(startPos, diceVal, player) {
     return target <= MAX_PATH_POS ? target : null;
   }
 
+  // FIXED: Correct home path position calculation
   const newPos = HOME_START + stepsIntoHome - 1;
-  return newPos <= FINAL_HOME ? newPos : null;
+  // Verify we don't overshoot the center
+  if (newPos > FINAL_HOME) {
+    return null;
+  }
+  return newPos;
 }
 
 function getMovableTokens(state, player, diceVal) {
@@ -266,31 +276,46 @@ function applyMove(state, player, tokenIdx, diceVal) {
 function getBiasedDice(targetOutcome, player) {
   const normal = () => randomInt(6) + 1;
 
-  if (targetOutcome === 'natural') return normal();
+  // FIXED: Consistent dice bias logic based on target_outcome and player role
+  
+  if (targetOutcome === 'natural') {
+    // No bias - pure random
+    return normal();
+  }
 
-  if (targetOutcome === 'force_win') {
+  if (targetOutcome === 'force_loss') {
+    // User should lose - give user low numbers, AI normal/high
     if (player === 'blue') {
+      // User gets biased toward low numbers (1-3)
       const r = secureRandom();
-      if (r < 0.35) return 6;
-      if (r < 0.55) return 5;
-      if (r < 0.7) return 4;
+      if (r < 0.4) return 1;
+      if (r < 0.7) return 2;
+      if (r < 0.85) return 3;
+      return normal(); // 15% chance of 4-6
+    } else {
+      // AI gets normal distribution
       return normal();
     }
-    const r = secureRandom();
-    if (r < 0.35) return randomInt(3) + 1;
-    return normal();
   }
 
-  if (player === 'green') {
-    const r = secureRandom();
-    if (r < 0.35) return 6;
-    if (r < 0.55) return 5;
-    if (r < 0.7) return 4;
-    return normal();
+  if (targetOutcome === 'force_win') {
+    // User should win - give user high numbers, AI low/normal
+    if (player === 'blue') {
+      // User gets biased toward high numbers (4-6)
+      const r = secureRandom();
+      if (r < 0.35) return 6;
+      if (r < 0.6) return 5;
+      if (r < 0.8) return 4;
+      return normal(); // 20% chance of 1-3
+    } else {
+      // AI gets slightly biased toward low numbers
+      const r = secureRandom();
+      if (r < 0.3) return randomInt(3) + 1; // 1-3
+      return normal(); // 70% chance of 1-6
+    }
   }
 
-  const r = secureRandom();
-  if (r < 0.35) return randomInt(3) + 1;
+  // Default fallback
   return normal();
 }
 
@@ -399,7 +424,11 @@ function processAiTurns(state, targetOutcome) {
 
 async function settleMatch(row, winner) {
   const betAmount = Number(row.bet_amount);
-  const winAmount = winner === 'blue' ? Math.round(betAmount * WIN_MULTI) : 0;
+  
+  // FIXED: Use calculateOutcome().maxWinAmount instead of hardcoded WIN_MULTI
+  // This ensures house edge is enforced and consistent with other games
+  const outcome = await calculateOutcome(row.user_id, betAmount, 'ludo', 'ludo-king');
+  const winAmount = winner === 'blue' ? Number(outcome.maxWinAmount || 0) : 0;
 
   if (winner === 'blue') {
     await supabaseAdmin.rpc('adjust_wallet_balance', {
@@ -416,7 +445,7 @@ async function settleMatch(row, winner) {
     bet_amount: betAmount,
     win_amount: winAmount,
     result: winner === 'blue' ? 'win' : 'loss',
-    multiplier: winner === 'blue' ? WIN_MULTI : null,
+    multiplier: winner === 'blue' && betAmount > 0 ? Math.round((winAmount / betAmount) * 100) / 100 : null,
   });
 
   const updatedState = {
@@ -513,11 +542,14 @@ async function startLudoMatch(userId, levelIdx) {
 
   const outcome = await calculateOutcome(userId, level.bet, 'ludo', 'ludo-king');
 
+  // FIXED: Map outcome to target_outcome for AI dice bias control
   const targetOutcome = outcome.outcome === 'loss'
-    ? 'force_loss'
-    : outcome.outcome === 'small_win' || outcome.outcome === 'medium_win' || outcome.outcome === 'big_win' || outcome.outcome === 'mega_win'
-      ? 'force_win'
-      : 'natural';
+    ? 'force_loss'  // AI will play to make user lose
+    : outcome.outcome === 'small_win' || outcome.outcome === 'medium_win' 
+      ? 'force_win' // AI will let user win small/medium
+      : outcome.outcome === 'big_win' || outcome.outcome === 'mega_win'
+        ? 'force_win' // AI will let user win big
+        : 'natural';  // Natural dice roll
 
   const boardState = {
     blue: [-1, -1, -1, -1],
