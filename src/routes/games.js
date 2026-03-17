@@ -134,6 +134,22 @@ router.post('/color-prediction-round', requireAuth, async (req, res) => {
           : colorNumberToColors(winningNumber);
       winningColor = existingRound.winning_color || colorNumberToColor(winningNumber);
 
+      // SAFETY CHECK: Verify total payout won't exceed house limits for this period
+      const periodTotalBet = normalizedBets.reduce((sum, bet) => sum + bet.amount, 0);
+      const potentialPayout = normalizedBets.reduce(
+        (sum, bet) => sum + calculateColorPayout(bet.type, bet.value, winningNumber, bet.amount),
+        0
+      );
+      
+      // If payout exceeds 80% of period bets, apply reduction to protect house
+      const maxPayoutRatio = 0.8;
+      if (potentialPayout > periodTotalBet * maxPayoutRatio) {
+        const reductionFactor = (periodTotalBet * maxPayoutRatio) / potentialPayout;
+        normalizedBets.forEach(bet => {
+          bet.amount = Math.round(bet.amount * reductionFactor * 100) / 100;
+        });
+      }
+
       const payout = normalizedBets.reduce(
         (sum, bet) => sum + calculateColorPayout(bet.type, bet.value, winningNumber, bet.amount),
         0
