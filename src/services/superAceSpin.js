@@ -472,10 +472,21 @@ async function runSuperAceSpin(userId, bet) {
     const mult = multipliers[Math.min(cascadeNum, multipliers.length - 1)];
     const basePay = wins.reduce((s, w) => s + w.basePayout, 0);
     let cascadePay = Math.round(basePay * mult);
-    if (totalWin + cascadePay > maxWin) cascadePay = maxWin - totalWin;
-    if (controlledWinCap > 0 && !isFreeSpinMode && totalWin + cascadePay > controlledWinCap) {
-      cascadePay = Math.max(0, controlledWinCap - totalWin);
+    
+    // Apply max win cap first
+    if (totalWin + cascadePay > maxWin) {
+      cascadePay = Math.max(0, maxWin - totalWin);
     }
+    
+    // Then apply controlled win cap with proper calculation
+    if (controlledWinCap > 0 && !isFreeSpinMode) {
+      const remainingCap = Math.max(0, controlledWinCap - totalWin);
+      cascadePay = Math.min(cascadePay, remainingCap);
+    }
+    
+    // Skip this cascade if nothing to pay
+    if (cascadePay <= 0) break;
+    
     totalWin += cascadePay;
 
     const { grid: convertedGrid, newConversions } = applyGoldenConversion(currentGrid, allWinPos, goldenConverted);
