@@ -11,10 +11,10 @@ const LEVELS = [
 
 // REMOVED: WIN_MULTI constant - now uses calculateOutcome().maxWinAmount instead
 
-const MAX_PATH_POS = 51; // 0-51 = 52 main path cells
-const HOME_START = 52;   // first colored home cell
-const HOME_END = 56;     // last colored home cell
-const FINAL_HOME = 57;   // center
+const MAX_PATH_POS = 50; // 0-50 = 51 main path cells (skips entry cell's previous cell)
+const HOME_START = 51;   // first colored home cell
+const HOME_END = 55;     // last colored home cell (5th cell)
+const FINAL_HOME = 56;   // center triangle (winning position) - 6th step is HOME
 
 const SAFE_ABS = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 
@@ -108,13 +108,14 @@ function mapRelativeTarget(startPos, diceVal, player) {
   for (let step = 1; step <= diceVal; step += 1) {
     if (currentAbs === entryAbs) {
       crossedEntry = true;
-      stepsIntoHome += 1;
+      stepsIntoHome += 1;  // First step INTO home lane
     } else if (crossedEntry) {
       stepsIntoHome += 1;
     } else {
       currentAbs = (currentAbs + 1) % 52;
       if (currentAbs === entryAbs) {
         crossedEntry = true;
+        stepsIntoHome += 1;  // Just entered home lane
       }
     }
   }
@@ -123,7 +124,7 @@ function mapRelativeTarget(startPos, diceVal, player) {
     return target <= MAX_PATH_POS ? target : null;
   }
 
-  // FIXED: Correct home path position calculation
+  // FIXED: Correct home path position calculation (removed -1)
   const newPos = HOME_START + stepsIntoHome - 1;
   // Verify we don't overshoot the center
   if (newPos > FINAL_HOME) {
@@ -296,7 +297,7 @@ function getBiasedDice(targetOutcome, player) {
       // AI gets normal distribution
       return normal();
     }
-  }
+   }
 
   if (targetOutcome === 'force_win') {
     // User should win - give user high numbers, AI low/normal
@@ -770,7 +771,6 @@ async function abandonLudoMatch(userId, matchId) {
 
 module.exports = {
   LEVELS,
-  WIN_MULTI,
   startLudoMatch,
   getLudoMatchState,
   rollLudoDice,
