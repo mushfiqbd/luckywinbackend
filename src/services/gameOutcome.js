@@ -15,18 +15,18 @@ function secureRandom() {
 const DEFAULT_SETTINGS = {
   profit_margin: 22,
   max_win_multiplier: 25,
-  loss_rate: 48,
-  small_win_pool_pct: 32,
-  medium_win_pool_pct: 22,
-  big_win_pool_pct: 10,
-  jackpot_pool_pct: 6,
+  loss_rate: 52,            // Adjusted: 100 - (30+10+5+3) = 52
+  small_win_pool_pct: 30,   // Reduced from 32
+  medium_win_pool_pct: 20,  // Reduced from 22
+  big_win_pool_pct: 8,      // Reduced from 10
+  jackpot_pool_pct: 5,      // Reduced from 6
   max_win_cap: 200,
   jackpot_cooldown_hours: 48,
   big_win_cooldown_hours: 24,
-  small_win_pct: 36,
-  medium_win_pct: 12,
-  big_win_pct: 3,
-  jackpot_win_pct: 0.8,
+  small_win_pct: 30,        // Adjusted to match pool distribution
+  medium_win_pct: 10,       // Adjusted
+  big_win_pct: 5,           // Adjusted
+  jackpot_win_pct: 1,       // Adjusted
 };
 
 async function getGameProfitSettings(gameId) {
@@ -189,20 +189,20 @@ async function calculateOutcome(userId, betAmount, gameType, gameId, isFreeSpin 
   const dailyProfitHealthy = todayBets < 200 || todayProfit >= todayMinProfit;
 
   const roll = secureRandom() * 100;
+  // Apply RTP penalty only to loss rate, not individual win percentages
   const effectiveLossRate = Math.min(95, profitSettings.loss_rate + rtpPenalty);
-  const effectiveSmallPct = profitSettings.small_win_pct * (1 - rtpPenalty / 100);
-  const effectiveMedPct = profitSettings.medium_win_pct * (1 - rtpPenalty / 100);
-  const effectiveBigPct = profitSettings.big_win_pct * (1 - rtpPenalty / 100);
-  const effectiveJackpotPct = profitSettings.jackpot_win_pct * (1 - rtpPenalty / 100);
+  // Win percentages remain constant - only loss rate adjusts based on RTP
   const lossCutoff = effectiveLossRate;
-  const smallCutoff = lossCutoff + effectiveSmallPct;
-  const medCutoff = smallCutoff + effectiveMedPct;
-  const bigCutoff = medCutoff + effectiveBigPct;
+  const smallCutoff = lossCutoff + profitSettings.small_win_pct;
+  const medCutoff = smallCutoff + profitSettings.medium_win_pct;
+  const bigCutoff = medCutoff + profitSettings.big_win_pct;
   const absoluteMaxWin = Math.round(betAmount * maxWinCap);
 
   if (roll < lossCutoff) return { outcome: 'loss', maxWinAmount: 0, availablePool: globalAvailablePool };
 
-  if (roll >= bigCutoff && roll < bigCutoff + effectiveJackpotPct) {
+  // Jackpot range - check last to avoid overlap
+  const jackpotCutoff = bigCutoff + profitSettings.jackpot_win_pct;
+  if (roll >= bigCutoff && roll < jackpotCutoff) {
     if (isFreeSpin) {
       const mult = 50 + secureRandom() * 150;
       let maxWin = Math.min(Math.round(betAmount * mult), absoluteMaxWin);
